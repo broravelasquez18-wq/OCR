@@ -1,0 +1,14 @@
+# Dependencias Python del helper OCR (ocr/procesar.py)
+opencv-python-headless
+numpy
+
+# Motor Tesseract (respaldo / OCR_ENGINE=tesseract)
+pytesseract
+
+# Motor RapidOCR (OCR_ENGINE=rapidocr): PP-OCR sobre ONNXRuntime, sin PaddlePaddle.
+# Mas rapido en CPU y mas preciso que Tesseract para este caso de uso.
+# El adaptador de resolución del detector está validado con esta versión.
+rapidocr-onnxruntime==1.4.4
+
+# Lectura directa del codigo PDF417 del reverso (numero exacto, sin OCR).
+zxing-cpp

@@ -1,0 +1,13 @@
+ALTER TABLE documentos_ocr ADD COLUMN nombre_completo VARCHAR(150) NULL;
+CREATE TABLE IF NOT EXISTS autocompletados (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  lote_id INT UNSIGNED NOT NULL,
+  destino VARCHAR(20) NOT NULL,
+  destino_id INT UNSIGNED NOT NULL,
+  origen VARCHAR(20) NOT NULL,
+  origen_id INT UNSIGNED NOT NULL,
+  cambios TEXT NOT NULL,
+  creado_en DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_auto_lote (lote_id),
+  CONSTRAINT fk_auto_lote FOREIGN KEY (lote_id) REFERENCES lotes_verificacion(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

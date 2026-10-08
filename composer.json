@@ -1,0 +1,20 @@
+{
+    "name": "verificador/ocr",
+    "description": "Verificador de documentacion por OCR (cruce lista SENA vs cedulas escaneadas)",
+    "type": "project",
+    "require": {
+        "php": ">=8.2",
+        "ext-pdo": "*",
+        "ext-json": "*",
+        "phpoffice/phpspreadsheet": "^2.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "App\\": "app/"
+        }
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "sort-packages": true
+    }
+}

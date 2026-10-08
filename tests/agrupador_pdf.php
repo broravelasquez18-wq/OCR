@@ -1,0 +1,67 @@
+<?php
+declare(strict_types=1);
+if (PHP_SAPI !== 'cli') exit;
+define('BASE_PATH',dirname(__DIR__));
+spl_autoload_register(static function(string $class): void {
+    $file=BASE_PATH.'/app/'.str_replace('\\','/',substr($class,4)).'.php'; if(is_file($file)) require $file;
+});
+use App\Services\AgrupadorPdf;
+function check(bool $ok, string $message): void { if (!$ok) throw new RuntimeException($message); }
+$front = ['numero_leido'=>'123456789','nombres'=>'ANA','apellidos'=>'PEREZ','fecha_nacimiento'=>null,'confianza'=>90,'texto_crudo'=>'NOMBRES ANA APELLIDOS PEREZ'];
+$back = ['numero_leido'=>'123456789','nombres'=>null,'apellidos'=>null,'fecha_nacimiento'=>'2000-01-02','fecha_zona'=>'mrz','confianza'=>90,'texto_crudo'=>'FECHA DE NACIMIENTO'];
+check(AgrupadorPdf::compatibles($front,$back),'Unir caras complementarias');
+check(!AgrupadorPdf::compatibles($front,array_replace($back,['numero_leido'=>'987654321'])),'No unir otra identificación');
+check(!AgrupadorPdf::compatibles($front,array_replace($back,['nombres'=>'LUISA'])),'No unir nombres contradictorios');
+check(!AgrupadorPdf::compatibles($front,array_replace($back,['confianza'=>30])),'No unir baja confianza');
+check(!AgrupadorPdf::compatibles($front,$front),'No unir duplicados completos');
+check(AgrupadorPdf::compatibles(array_replace($front,['apellidos'=>'PEREZLOPEZ']),array_replace($back,['apellidos'=>'PEREZ LOPEZ'])),'Espacios perdidos no separan caras de igual numero');
+check(!AgrupadorPdf::compatibles(array_replace($front,['apellidos'=>'PEREZLOPEZ']),array_replace($back,['apellidos'=>'PEREZ GOMEZ'])),'No confundir apellidos distintos');
+check(AgrupadorPdf::soloFormato(['apellidos'=>['PEREZLOPEZ','PEREZ LOPEZ']]),'Permitir auditoría de espacios');
+check(!AgrupadorPdf::soloFormato(['nombres'=>[null,'ANA']]),'Proteger nombre inferido');
+check(!AgrupadorPdf::soloFormato(['numero_leido'=>['123456','123457']]),'Proteger número corregido');
+check(!AgrupadorPdf::compatibles($front,array_replace($back,['numero_leido'=>null,'nombres'=>'ANA','apellidos'=>'PEREZ'])),'No unir por homónimo');
+$mrz = array_replace($back,['zona_fuente'=>'mrz','nombres'=>'ANAKMARIAKK','apellidos'=>'PEREZKLOPEZ','texto_crudo'=>'PEREZKLOPEZ<<ANAKMARIAKK']);
+$impreso = array_replace($front,['nombres'=>'ANA MARIA','apellidos'=>'PEREZ LOPEZ']);
+check(AgrupadorPdf::compatibles($impreso,$mrz),'Relleno MRZ confundido con K entre palabras exactas');
+check(!AgrupadorPdf::compatibles($impreso,array_replace($mrz,['texto_crudo'=>'PEREZKLOPEZ<<ANAKMARTA<<'])),'No cambiar letras de un nombre distinto');
+check(AgrupadorPdf::compatibles(array_replace($impreso,['apellidos'=>'MUÑOZ LOPEZ']),array_replace($mrz,['apellidos'=>'MUNOZ LOPEZ','texto_crudo'=>'MUNOZ<LOPEZ<<ANA<MARIA<<'])),'Transliteración MRZ de Ñ');
+check(AgrupadorPdf::compatibles(array_replace($impreso,['fecha_nacimiento'=>'2000-01-02']),$mrz),'Dos caras completas siguen siendo un par');
+check(AgrupadorPdf::compatibles(array_replace($impreso,['fecha_nacimiento'=>'2000-01-02','apellidos'=>'PEREZLOPEZ']),array_replace($mrz,['nombres'=>'ANA MARIA','apellidos'=>'PEREZ LOPEZ'])),'Campos completos con apellido sin espacios se unen');
+$proFrente = array_replace($front,['pagina'=>10,'zona_fuente'=>'frontal']);
+$proReverso = array_replace($back,['pagina'=>11,'zona_fuente'=>'codigo_barras','numero_leido'=>'123456799','texto_crudo'=>'P-123-456-F-123456799-20060103']);
+check(AgrupadorPdf::propuesta($proFrente,$proReverso),'Proponer par consecutivo con un dígito distinto');
+check(!AgrupadorPdf::compatibles($proFrente,$proReverso),'Propuesta no es coincidencia');
+check(!AgrupadorPdf::propuesta($proFrente,array_replace($proReverso,['pagina'=>12])),'No proponer páginas no consecutivas');
+check(!AgrupadorPdf::propuesta($proFrente,array_replace($proReverso,['zona_fuente'=>'mrz'])),'No suavizar contradicción MRZ');
+check(!AgrupadorPdf::propuesta($proFrente,array_replace($proReverso,['nombres'=>'OTRA'])),'No proponer otra identidad');
+check(!AgrupadorPdf::propuesta($proFrente,array_replace($proReverso,['numero_leido'=>'123456999'])),'No proponer dos dígitos distintos');
+App\Core\Env::load(BASE_PATH.'/.env');
+$db=App\Core\Database::conn();
+$db->prepare('INSERT INTO lotes_verificacion(codigo_ficha) VALUES (?)')->execute(['TEST'.bin2hex(random_bytes(4))]);
+$lote=(int)$db->lastInsertId();
+try {
+    $ids=[];
+    foreach ([$front,$back] as $i=>$d) $ids[]=App\Models\DocumentoOcr::crear($lote,$d+['origen'=>'pdf','ruta_imagen'=>'test-'.bin2hex(random_bytes(5)), 'pagina'=>$i+1,'zona_fuente'=>'frontal']);
+    check(AgrupadorPdf::agrupar($lote,$ids)===1,'Un par persistido');
+    check(App\Models\DocumentoOcr::contarPorLote($lote)===1,'Un documento visible');
+    $docs=App\Models\DocumentoOcr::porLote($lote);
+    check($docs[0]['fecha_nacimiento']==='2000-01-02' && $docs[0]['nombres']==='ANA' && !empty($docs[0]['ruta_reverso']),'Campos e imágenes conservados');
+    check(count(App\Models\DocumentoOcr::sobrantes($lote))===1,'No duplicar reverso en sobrantes');
+    check(AgrupadorPdf::agrupar($lote,$ids)===0,'Repetición idempotente');
+    $q=$db->prepare('SELECT COUNT(*) FROM documentos_ocr WHERE lote_id=?'); $q->execute([$lote]);
+    check((int)$q->fetchColumn()===2,'Originales conservados');
+    $extra=[];
+    foreach ([$front,$back,$back] as $i=>$d) $extra[]=App\Models\DocumentoOcr::crear($lote,$d+['origen'=>'pdf','ruta_imagen'=>'test-'.bin2hex(random_bytes(5)),'pagina'=>$i+4,'zona_fuente'=>'frontal']);
+    check(AgrupadorPdf::agrupar($lote,$extra)===0,'Rechazar parejas ambiguas');
+    check(AgrupadorPdf::agrupar($lote+1,$extra)===0,'No mezclar lotes');
+    $proposalIds=[];
+    foreach ([$proFrente,$proReverso] as $d) $proposalIds[]=App\Models\DocumentoOcr::crear($lote,$d+['origen'=>'pdf','ruta_imagen'=>'test-'.bin2hex(random_bytes(5))]);
+    check(AgrupadorPdf::agrupar($lote,$proposalIds)===1,'Propuesta conservada para revisión');
+    $q=$db->prepare('SELECT * FROM documentos_ocr WHERE id=?');$q->execute([$proposalIds[0]]);$proposal=$q->fetch();
+    check($proposal['fecha_nacimiento']===null,'No copiar fecha de reverso contradictorio');
+    check($proposal['numero_leido']===$front['numero_leido'],'No sustituir numero frontal');
+    check(str_contains($proposal['texto_crudo'],'[REVISION OCR]') && str_contains($proposal['texto_crudo'],'[PAR PROPUESTO OCR]'),'Aviso persistente de propuesta');
+    check(App\Services\Identidad::motivoRevision('ANA PEREZ',$proposal)!==null,'Propuesta no se presenta como verificada');
+    check(AgrupadorPdf::agrupar($lote,$proposalIds)===0,'No duplicar propuesta');
+    echo "OK: coincidencia, contradicciones, ambigüedad, persistencia, originales e idempotencia.\n";
+} finally { $db->prepare('DELETE FROM lotes_verificacion WHERE id=?')->execute([$lote]); }

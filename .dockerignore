@@ -1,0 +1,7 @@
+.git
+.env
+vendor
+storage/uploads/*
+!storage/uploads/.gitkeep
+node_modules
+*.log

@@ -1,0 +1,29 @@
+# Env / secrets
+.env
+
+# Dependencies
+/vendor/
+
+# Uploads (runtime artifacts, keep the dir with .gitkeep)
+/storage/uploads/*
+!/storage/uploads/.gitkeep
+/storage/tmp/
+/storage/sessions/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# PHP
+*.log
+
+# Datos personales y respaldos (nunca al repo)
+/storage/backups/
+/storage/*.sql
+/tmp/
+
+# Python
+__pycache__/
+*.pyc
